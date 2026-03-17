@@ -1,0 +1,17 @@
+[project]
+name = "mudra"
+version = "0.1.0"
+description = "A rule-based chatbot for Burmese language."
+authors = [
+    {name = "Kaung Hein Htet",email = "52240936+KHH-AKA-Lucifer@users.noreply.github.com"}
+]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "playwright (>=1.58.0,<2.0.0)"
+]
+
+
+[build-system]
+requires = ["poetry-core>=2.0.0,<3.0.0"]
+build-backend = "poetry.core.masonry.api"
