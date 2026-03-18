@@ -36,6 +36,7 @@ PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "data")
 
 running = True
+stop_requests = 0
 
 SKIP_EXACT_LINES = {
     "Like",
@@ -81,9 +82,23 @@ SKIP_LINE_PATTERNS = (
 
 
 def signal_handler(sig, frame):
-    global running
-    print("\n\nStopping after current batch...")
-    running = False
+    global running, stop_requests
+    stop_requests += 1
+    if stop_requests == 1:
+        print("\n\nStopping soon... Press Ctrl+C again to force quit.")
+        running = False
+        return
+
+    raise KeyboardInterrupt
+
+
+def interruptible_sleep(seconds: float, interval: float = 0.25) -> bool:
+    deadline = time.time() + max(0.0, seconds)
+    while time.time() < deadline:
+        if not running:
+            return False
+        time.sleep(min(interval, max(0.0, deadline - time.time())))
+    return running
 
 
 signal.signal(signal.SIGINT, signal_handler)
@@ -533,7 +548,7 @@ def load_more_comments(page, target: int = 100) -> int:
     prev_count = visible_comment_count(page)
     print(f"    Starting with {prev_count} comments visible")
 
-    while stale_count < 10:
+    while running and stale_count < 10:
         clicked = click_matching_elements(
             page,
             [
@@ -551,14 +566,16 @@ def load_more_comments(page, target: int = 100) -> int:
 
         if clicked:
             print(f"    Clicked {clicked} load-more control(s)")
-            time.sleep(random.uniform(1.5, 2.5))
+            if not interruptible_sleep(random.uniform(1.5, 2.5)):
+                break
 
         scroll_comments_view(page)
-        time.sleep(random.uniform(1.5, 2.5))
+        if not interruptible_sleep(random.uniform(1.5, 2.5)):
+            break
 
         expanded = expand_truncated_comments(page, limit=8)
-        if expanded:
-            time.sleep(0.75)
+        if expanded and not interruptible_sleep(0.75):
+            break
 
         current_count = visible_comment_count(page)
         new_loaded = max(0, current_count - prev_count)
@@ -584,15 +601,19 @@ def crawl_batch(page, post_url: str, seen_keys: set, post_text_keys: set, first_
     if first_load:
         print("  Loading post...")
         page.goto(post_url, wait_until="domcontentloaded", timeout=60000)
-        time.sleep(random.uniform(5, 8))
+        if not interruptible_sleep(random.uniform(5, 8)):
+            return []
 
         if not post_text_keys:
             post_text_keys.update(extract_post_text_keys(page))
 
         print("  Scrolling to comments area...")
         for _ in range(5):
+            if not running:
+                return []
             scroll_comments_view(page)
-            time.sleep(random.uniform(1.0, 2.0))
+            if not interruptible_sleep(random.uniform(1.0, 2.0)):
+                return []
 
         switch_to_all_comments(page)
 
@@ -605,12 +626,15 @@ def crawl_batch(page, post_url: str, seen_keys: set, post_text_keys: set, first_
 
     print("  Loading more comments...")
     load_more_comments(page, target=BATCH_SIZE)
+    if not running:
+        return []
 
     print("  Expanding visible comments...")
     expanded = expand_truncated_comments(page, limit=40)
     if expanded:
         print(f"    Expanded {expanded} truncated comment(s)")
-        time.sleep(1)
+        if not interruptible_sleep(1):
+            return []
 
     print("  Extracting comments...")
     raw_comments = extract_comments(page)
@@ -625,6 +649,8 @@ def crawl_batch(page, post_url: str, seen_keys: set, post_text_keys: set, first_
 
     new_comments = []
     for comment in raw_comments:
+        if not running:
+            break
         key = comment_key(comment["commenter"], comment["text"])
         if key in seen_keys:
             continue
@@ -645,7 +671,8 @@ def wait_with_countdown(minutes: int):
             return
         mins, secs = divmod(remaining, 60)
         print(f"\r  Next batch in {mins:02d}:{secs:02d}  ", end="", flush=True)
-        time.sleep(1)
+        if not interruptible_sleep(1):
+            return
     print()
 
 
@@ -724,7 +751,8 @@ def main():
             except Exception as error:
                 print(f"  Warning: {error}")
                 print("  Retrying in 10 seconds...")
-                time.sleep(10)
+                if not interruptible_sleep(10):
+                    break
                 try:
                     new_comments = crawl_batch(
                         page,
@@ -760,4 +788,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("\nForce stopped.")
