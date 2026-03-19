@@ -5,6 +5,10 @@ Uses a real browser to crawl comments from Facebook posts.
 Fetches about 100 comments per batch and waits between batches.
 
 Usage:
+    Create a .env file in the project root with:
+        c_user=your_c_user_cookie
+        xs=your_xs_cookie
+    Then run:
     python utils/comment-crawler.py
 
 Install:
@@ -34,6 +38,7 @@ WAIT_MINUTES = 1
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
 OUTPUT_DIR = os.path.join(PROJECT_ROOT, "data")
+ENV_PATH = os.path.join(PROJECT_ROOT, ".env")
 
 running = True
 stop_requests = 0
@@ -108,6 +113,35 @@ def comment_key(name: str, text: str) -> str:
     normalized_name = re.sub(r"\s+", " ", (name or "")).strip().casefold()
     normalized_text = re.sub(r"\s+", " ", (text or "")).strip().casefold()
     return f"{normalized_name}|{normalized_text}"
+
+
+def load_env_values(path: str) -> dict[str, str]:
+    values = {}
+    if not os.path.exists(path):
+        return values
+
+    with open(path, "r", encoding="utf-8") as env_file:
+        for raw_line in env_file:
+            line = raw_line.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("export "):
+                line = line[7:].strip()
+            if "=" not in line:
+                continue
+
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip()
+            if not key:
+                continue
+
+            if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
+                value = value[1:-1]
+
+            values[key] = value
+
+    return values
 
 
 def clean_comment_name(name: str) -> str:
@@ -688,11 +722,13 @@ def main():
         print("No URL. Exiting.")
         return
 
-    c_user = input("c_user cookie value:\n> ").strip()
-    xs = input("xs cookie value:\n> ").strip()
+    env_values = load_env_values(ENV_PATH)
+    c_user = env_values.get("c_user", "").strip()
+    xs = env_values.get("xs", "").strip()
 
     if not c_user or not xs:
-        print("Cookies required. Exiting.")
+        print(f"Missing cookies in {ENV_PATH}.")
+        print("Add c_user=... and xs=... to the .env file, then run again.")
         return
 
     os.makedirs(OUTPUT_DIR, exist_ok=True)
